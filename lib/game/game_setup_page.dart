@@ -54,16 +54,22 @@ class _GameSetupPageState extends State<GameSetupPage>
     super.dispose();
   }
 
+  Future<void> _selectionHaptic() async {
+    try {
+      await HapticFeedback.selectionClick();
+    } catch (_) {}
+  }
+
   Future<void> _setBoardSize(int size) async {
     if (size == _boardSize) return;
     setState(() => _boardSize = size);
-    await HapticFeedback.selectionClick();
+    await _selectionHaptic();
   }
 
   Future<void> _setTarget(int value) async {
     if (value == _targetValue) return;
     setState(() => _targetValue = value);
-    await HapticFeedback.selectionClick();
+    await _selectionHaptic();
   }
 
   void _startGame() {
@@ -413,7 +419,7 @@ class _ResponsiveBoardSizeSelectorState extends State<_ResponsiveBoardSizeSelect
                       boxShadow: <BoxShadow>[
                         BoxShadow(
                           color: const Color(0xFFF65E3B).withValues(alpha: 0.34),
-                          blurRadius: 12,
+                          blurRadius: 10,
                           spreadRadius: 1,
                           offset: const Offset(0, 4),
                         ),
@@ -521,6 +527,8 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   List<_MovingTile> _movingTiles = <_MovingTile>[];
   Set<BoardPoint> _mergedCells = <BoardPoint>{};
   Set<BoardPoint> _spawnedCells = <BoardPoint>{};
+  Offset? _dragStart;
+  bool _dragConsumed = false;
 
   int get _boardSize => widget.config.boardSize;
   int get _targetValue => widget.config.targetValue;
@@ -554,6 +562,30 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     _spawnController.dispose();
     _mergeFlashController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectionHaptic() async {
+    try {
+      await HapticFeedback.selectionClick();
+    } catch (_) {}
+  }
+
+  Future<void> _mergeHaptic() async {
+    try {
+      await HapticFeedback.mediumImpact();
+    } catch (_) {}
+  }
+
+  Future<void> _successHaptic() async {
+    try {
+      await HapticFeedback.heavyImpact();
+    } catch (_) {}
+  }
+
+  Future<void> _errorHaptic() async {
+    try {
+      await HapticFeedback.vibrate();
+    } catch (_) {}
   }
 
   List<List<int>> _createEmptyBoard() {
@@ -626,7 +658,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     setState(() {});
 
     if (_mergedCells.isNotEmpty) {
-      await HapticFeedback.mediumImpact();
+      await _mergeHaptic();
       await _mergeFlashController.forward(from: 0);
     }
 
@@ -646,10 +678,10 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     }
 
     if (_gameWon && mounted) {
-      await HapticFeedback.heavyImpact();
+      await _successHaptic();
       _showResultDialog(isWin: true);
     } else if (_gameOver && mounted) {
-      await HapticFeedback.vibrate();
+      await _errorHaptic();
       _showResultDialog(isWin: false);
     }
   }
@@ -827,6 +859,36 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     } else if (velocity > 50) {
       _handleMove(MoveDirection.right);
     }
+  }
+
+  void _onBoardPanStart(DragStartDetails details) {
+    _dragStart = details.localPosition;
+    _dragConsumed = false;
+  }
+
+  void _onBoardPanUpdate(DragUpdateDetails details) {
+    if (_dragConsumed || _dragStart == null || _isAnimating || _gameOver) {
+      return;
+    }
+
+    final Offset delta = details.localPosition - _dragStart!;
+    const double threshold = 26;
+    if (delta.distance < threshold) {
+      return;
+    }
+
+    if (delta.dx.abs() > delta.dy.abs()) {
+      _dragConsumed = true;
+      _handleMove(delta.dx > 0 ? MoveDirection.right : MoveDirection.left);
+    } else {
+      _dragConsumed = true;
+      _handleMove(delta.dy > 0 ? MoveDirection.down : MoveDirection.up);
+    }
+  }
+
+  void _onBoardPanEnd(DragEndDetails details) {
+    _dragStart = null;
+    _dragConsumed = false;
   }
 
   KeyEventResult _handleKeyEvent(KeyEvent event) {
@@ -1128,12 +1190,13 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                     final double width = viewport.maxWidth;
                     final double height = viewport.maxHeight;
                     final bool compact = width < 720;
-                    final double outerPadding = compact ? 12 : 16;
+                    final double outerPadding = compact ? 10 : 14;
                     final double contentWidth = min(width - outerPadding * 2, 960.0);
-                    final double headerHeight = compact ? 88 : 76;
+                    final double headerHeight = compact ? 78 : 70;
+                    final double safetyBottom = compact ? 10 : 8;
                     final double boardSide = min(
                       contentWidth,
-                      max(260.0, height - headerHeight - outerPadding * 3),
+                      max(240.0, height - headerHeight - outerPadding * 3 - safetyBottom),
                     );
                     final double gap = boardSide < 460 ? 8 : 10;
                     final double tileSize = (boardSide - gap * (_boardSize + 1)) / _boardSize;
@@ -1147,16 +1210,16 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
                               Container(
-                                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withValues(alpha: 0.42),
-                                  borderRadius: BorderRadius.circular(18),
+                                  borderRadius: BorderRadius.circular(16),
                                   border: Border.all(color: const Color(0xFFD8CCBB)),
                                   boxShadow: <BoxShadow>[
                                     BoxShadow(
                                       color: Colors.black.withValues(alpha: 0.06),
                                       blurRadius: 12,
-                                      offset: const Offset(0, 5),
+                                      offset: const Offset(0, 4),
                                     ),
                                   ],
                                 ),
@@ -1166,25 +1229,25 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                                       child: Text(
                                         '盤格 ${_boardSize}X$_boardSize  ·  目標 $_targetValue',
                                         style: const TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 13,
                                           fontWeight: FontWeight.w700,
                                           color: Color(0xFF776E65),
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    _InfoCard(label: '分數', value: _score),
                                     const SizedBox(width: 6),
+                                    _InfoCard(label: '分數', value: _score),
+                                    const SizedBox(width: 4),
                                     _InfoCard(label: '最高', value: _bestTile),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     FilledButton(
                                       onPressed: _isAnimating ? null : _resetGame,
                                       style: FilledButton.styleFrom(
-                                        minimumSize: const Size(86, 34),
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        minimumSize: const Size(76, 30),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                         backgroundColor: const Color(0xFF8F7A66),
                                         foregroundColor: Colors.white,
-                                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                                       ),
                                       child: const Text('重新開始'),
                                     ),
@@ -1192,9 +1255,9 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                                     OutlinedButton(
                                       onPressed: () => Navigator.of(context).pop(),
                                       style: OutlinedButton.styleFrom(
-                                        minimumSize: const Size(86, 34),
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                        minimumSize: const Size(76, 30),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                                       ),
                                       child: const Text('返回設定'),
                                     ),
@@ -1202,56 +1265,63 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                                 ),
                               ),
                               const SizedBox(height: 10),
-                              Container(
-                                width: boardSide,
-                                height: boardSide,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFBBADA0),
-                                  borderRadius: BorderRadius.circular(22),
-                                  boxShadow: <BoxShadow>[
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.12),
-                                      blurRadius: 24,
-                                      offset: const Offset(0, 10),
-                                    ),
-                                  ],
-                                ),
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  children: <Widget>[
-                                    for (int row = 0; row < _boardSize; row++)
-                                      for (int col = 0; col < _boardSize; col++)
-                                        Positioned(
-                                          left: gap + col * (tileSize + gap),
-                                          top: gap + row * (tileSize + gap),
-                                          width: tileSize,
-                                          height: tileSize,
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFCDC1B4),
-                                              borderRadius: BorderRadius.circular(max(8, tileSize * 0.12)),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _keyboardFocusNode.requestFocus(),
+                                onPanStart: _onBoardPanStart,
+                                onPanUpdate: _onBoardPanUpdate,
+                                onPanEnd: _onBoardPanEnd,
+                                child: Container(
+                                  width: boardSide,
+                                  height: boardSide,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFBBADA0),
+                                    borderRadius: BorderRadius.circular(22),
+                                    boxShadow: <BoxShadow>[
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.12),
+                                        blurRadius: 24,
+                                        offset: const Offset(0, 10),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: <Widget>[
+                                      for (int row = 0; row < _boardSize; row++)
+                                        for (int col = 0; col < _boardSize; col++)
+                                          Positioned(
+                                            left: gap + col * (tileSize + gap),
+                                            top: gap + row * (tileSize + gap),
+                                            width: tileSize,
+                                            height: tileSize,
+                                            child: DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFCDC1B4),
+                                                borderRadius: BorderRadius.circular(max(8, tileSize * 0.12)),
+                                              ),
                                             ),
                                           ),
+                                      if (!_isAnimating)
+                                        _buildStaticTiles(
+                                          boardSide: boardSide,
+                                          tileSize: tileSize,
+                                          gap: gap,
                                         ),
-                                    if (!_isAnimating)
-                                      _buildStaticTiles(
-                                        boardSide: boardSide,
-                                        tileSize: tileSize,
-                                        gap: gap,
-                                      ),
-                                    if (_isAnimating)
-                                      _buildMovingTiles(
-                                        boardSide: boardSide,
-                                        tileSize: tileSize,
-                                        gap: gap,
-                                      ),
-                                    if (_isAnimating && _mergedCells.isNotEmpty)
-                                      _buildMergeEffects(
-                                        boardSide: boardSide,
-                                        tileSize: tileSize,
-                                        gap: gap,
-                                      ),
-                                  ],
+                                      if (_isAnimating)
+                                        _buildMovingTiles(
+                                          boardSide: boardSide,
+                                          tileSize: tileSize,
+                                          gap: gap,
+                                        ),
+                                      if (_isAnimating && _mergedCells.isNotEmpty)
+                                        _buildMergeEffects(
+                                          boardSide: boardSide,
+                                          tileSize: tileSize,
+                                          gap: gap,
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -1283,29 +1353,29 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 74,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      width: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFFBBADA0),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         children: <Widget>[
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w800,
               color: Color(0xFFEEE4DA),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
               '$value',
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w900,
                 color: Colors.white,
               ),
